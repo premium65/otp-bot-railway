@@ -1,63 +1,52 @@
 import os
 import zipfile
-from pyrogram import Client, filters
+import re
+from telethon.sync import TelegramClient
+from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.errors.rpcerrorlist import AuthKeyDuplicatedError
 
-API_ID = 22815381
-API_HASH = "de80983b057a7f8e22a88b8a83c21d20"
-BOT_TOKEN = "8250710501:AAHpkNhAh2pBgD8SF5Eb8Q7REH_Ide12h08"
+api_id = 22815381
+api_hash = "de80983b057a7f8e22a88b8a83c21d20"
 
-bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+def extract_session_from_zip(zip_path, extract_to="sessions"):
+    os.makedirs(extract_to, exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_to)
+    return [os.path.join(extract_to, f) for f in os.listdir(extract_to) if f.endswith('.session')]
 
-@bot.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("✅ Railway Bot is ONLINE! 🚀\nSend me a .zip file with Telegram sessions to read OTP codes.")
+def get_otp_from_session(session_file):
+    try:
+        client = TelegramClient(session_file, api_id, api_hash)
+        client.connect()
+        if not client.is_user_authorized():
+            client.disconnect()
+            return "[X] Session is not authorized or is invalid."
+        user = client.get_me()
+        posts = client(GetHistoryRequest(peer=777000, limit=2))
+        otp = None
+        for msg in posts.messages:
+            match = re.search(r'\d{5,}', msg.message)
+            if match:
+                otp = match.group()
+                break
+        client.disconnect()
+        if otp:
+            return f"[✓] Phone: +{user.phone}\n[✓] OTP: {otp}"
+        else:
+            return "[X] OTP not found in last 2 messages."
+    except AuthKeyDuplicatedError:
+        return "[X] Error: The key was used under two different IP"
+    except Exception as e:
+        return f"[X] Error: {e}"
 
-@bot.on_message(filters.document)
-async def handle_zip(client, message):
-    if not message.document.file_name.endswith(".zip"):
-        await message.reply("❌ Please send a .zip file only!")
-        return
-
-    # Download and extract the zip
-    zip_dir = "sessions"
-    os.makedirs(zip_dir, exist_ok=True)
-    zip_path = await client.download_media(message, file_name=f"{zip_dir}/{message.document.file_name}")
-
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(zip_dir)
-
-    session_files = [f for f in os.listdir(zip_dir) if f.endswith(".session")]
-    if not session_files:
-        await message.reply("❌ No .session files found in ZIP.")
-        return
-
-    # Process each session file
-    results = []
-    for session_file in session_files:
-        session_path = os.path.join(zip_dir, session_file)
-        try:
-            user = Client(session_path, api_id=API_ID, api_hash=API_HASH, in_memory=True)
-            await user.start()
-            # Search for OTP in recent messages
-            found = False
-            async for msg in user.get_chat_history("me", limit=30):
-                if msg.text and ("otp" in msg.text.lower() or "code" in msg.text.lower()):
-                    results.append(
-                        f"User: `{session_file.replace('.session','')}`\nOTP: `{msg.text}`"
-                    )
-                    found = True
-                    break
-            if not found:
-                results.append(f"User: `{session_file.replace('.session','')}`\nOTP: Not found")
-            await user.stop()
-        except Exception as e:
-            results.append(f"Session `{session_file}`: Error - {e}")
-
-    # Reply results in chunks (Telegram limit)
-    if results:
-        for chunk in [results[i:i+10] for i in range(0, len(results), 10)]:
-            await message.reply("\n\n".join(chunk))
+if __name__ == '__main__':
+    print("Paste here the path to your .zip or .session file:")
+    file_path = input().strip().replace('"','')
+    if file_path.endswith('.zip'):
+        session_files = extract_session_from_zip(file_path)
     else:
-        await message.reply("No OTPs found in any session.")
-
-bot.run()
+        session_files = [file_path]
+    for session_file in session_files:
+        print(f"Checking: {session_file}")
+        print(get_otp_from_session(session_file))
+        print("-" * 32)
