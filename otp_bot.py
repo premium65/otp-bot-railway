@@ -1,48 +1,53 @@
 import os
+import zipfile
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import zipfile
 
-API_ID = int(os.environ.get("API_ID", 22815381))
-API_HASH = os.environ.get("API_HASH", "de80983b057a7f8e22a88b8a83c21d20")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8250710501:AAHpkNhAh2pBgD8SF5Eb8Q7REH_Ide12h08")
+API_ID = 22815381
+API_HASH = "de80983b057a7f8e22a88b8a83c21d20"
+BOT_TOKEN = "8250710501:AAHpkNhAh2pBgD8SF5Eb8Q7REH_Ide12h08"
 
 app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@app.on_message(filters.command("start"))
-def start_handler(client, message):
-    message.reply_text("✅ Railway Bot is ONLINE! 🚀\nSend me a .zip file to show the session files inside.")
+@app.on_message(filters.command("read_otp"))
+async def ask_zip(client, message: Message):
+    await message.reply("📥 Please send your ZIP file with sessions.")
 
-@app.on_message(filters.document & filters.private)
-def session_from_zip(client: Client, message: Message):
-    doc = message.document
-    if doc.file_name.endswith('.zip'):
-        temp_zip = f"temp_{doc.file_name}"
-        message.reply_text("⏬ Downloading your zip...")
-        doc_path = client.download_media(message, file_name=temp_zip)
+@app.on_message(filters.document)
+async def handle_zip(client, message: Message):
+    file = message.document
+    if not file.file_name.endswith(".zip"):
+        await message.reply("❌ Please send a ZIP file!")
+        return
+
+    d = "sessions"
+    os.makedirs(d, exist_ok=True)
+    zip_path = await app.download_media(message, file_name=os.path.join(d, file.file_name))
+
+    # Extract all session files
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(d)
+
+    session_files = [f for f in os.listdir(d) if f.endswith(".session")]
+    reply = []
+    for sess in session_files:
         try:
-            filelist = []
-            with zipfile.ZipFile(doc_path, 'r') as zip_ref:
-                for file in zip_ref.namelist():
-                    filelist.append(file)
-                    # If you want to display content, uncomment next lines:
-                    # zip_ref.extract(file)
-                    # with open(file, 'r', encoding='utf-8', errors='ignore') as f:
-                    #     content = f.read(500)  # Show first 500 chars
-                    #     message.reply_text(f"File: {file}\n\n{content}")
-                    # os.remove(file)
-            if filelist:
-                msg = "🗂 Files found in your zip:\n\n"
-                msg += "\n".join([f"- {name}" for name in filelist])
-                message.reply_text(msg)
-            else:
-                message.reply_text("❌ No files found in the zip.")
+            user_app = Client(os.path.join(d, sess), api_id=API_ID, api_hash=API_HASH, in_memory=True)
+            await user_app.start()
+            # Search for OTP in recent messages (you may want to change chat, e.g., a specific sender)
+            async for m in user_app.get_chat_history("me", limit=30):
+                if "otp" in m.text.lower():
+                    reply.append(f"**User:** `{sess.replace('.session','')}`\n**OTP:** `{m.text}`")
+                    break
+            await user_app.stop()
         except Exception as e:
-            message.reply_text(f"❌ Error reading zip: `{e}`")
-        os.remove(doc_path)
+            reply.append(f"`{sess}` ❌ Error: {e}")
+
+    if not reply:
+        await message.reply("❌ No OTP found in any session.")
     else:
-        message.reply_text("Please send a .zip file containing your sessions.")
+        for chunk in [reply[i:i+10] for i in range(0, len(reply), 10)]:
+            await message.reply("\n\n".join(chunk))
 
 if __name__ == "__main__":
-    print("Bot is starting...")
     app.run()
