@@ -11,34 +11,37 @@ app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 @app.on_message(filters.command("start"))
 def start_handler(client, message):
-    message.reply_text("✅ Railway Bot is ONLINE! 🚀\n\nSend me a .zip file to read OTP.")
+    message.reply_text("✅ Railway Bot is ONLINE! 🚀\nSend me a .zip file to show the session files inside.")
 
 @app.on_message(filters.document & filters.private)
-def otp_from_zip(client: Client, message: Message):
+def session_from_zip(client: Client, message: Message):
     doc = message.document
     if doc.file_name.endswith('.zip'):
         temp_zip = f"temp_{doc.file_name}"
         message.reply_text("⏬ Downloading your zip...")
         doc_path = client.download_media(message, file_name=temp_zip)
-        otp_found = False
         try:
+            filelist = []
             with zipfile.ZipFile(doc_path, 'r') as zip_ref:
                 for file in zip_ref.namelist():
-                    if file.endswith('.txt'):
-                        zip_ref.extract(file)
-                        with open(file, 'r') as f:
-                            otp_content = f.read().strip()
-                        message.reply_text(f"🔑 OTP Content from `{file}`:\n\n`{otp_content}`", parse_mode="markdown")
-                        otp_found = True
-                        os.remove(file)
-                        break
-            if not otp_found:
-                message.reply_text("❌ No .txt file found in the zip.")
+                    filelist.append(file)
+                    # If you want to display content, uncomment next lines:
+                    # zip_ref.extract(file)
+                    # with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+                    #     content = f.read(500)  # Show first 500 chars
+                    #     message.reply_text(f"File: {file}\n\n{content}")
+                    # os.remove(file)
+            if filelist:
+                msg = "🗂 Files found in your zip:\n\n"
+                msg += "\n".join([f"- {name}" for name in filelist])
+                message.reply_text(msg)
+            else:
+                message.reply_text("❌ No files found in the zip.")
         except Exception as e:
-            message.reply_text(f"❌ Error extracting OTP: `{e}`")
+            message.reply_text(f"❌ Error reading zip: `{e}`")
         os.remove(doc_path)
     else:
-        message.reply_text("Please send a .zip file containing the OTP.")
+        message.reply_text("Please send a .zip file containing your sessions.")
 
 if __name__ == "__main__":
     print("Bot is starting...")
